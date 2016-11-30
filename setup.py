@@ -13,14 +13,18 @@ def parse_dependency_info() -> dict:
     """Reads dependency info from requirements.txt"""
     packages = []
     links = []
-    with open('requirements.txt') as dependencies:
-        for line in map(str.strip, dependencies):
-            link = HTTP.match(line)
-            if link:
-                packages.append(link.group(1))
-                links.append(line)
-            else:
-                packages.append(line)
+    try:
+        with open('requirements.txt') as dependencies:
+            for line in map(str.strip, dependencies):
+                link = HTTP.match(line)
+                if link:
+                    packages.append(link.group(1))
+                    links.append(line)
+                else:
+                    packages.append(line)
+    except FileNotFoundError:
+        print('Missing requirements.txt')
+
     return {'install_requires': packages, 'dependency_links': links}
 
 
@@ -41,7 +45,12 @@ def read_metadata() -> dict:
                 '__license__': 'license'}
 
     with open(package_init) as init:
-        first_line = next(init)
+        try:
+            first_line = next(init)
+        except StopIteration:
+            print('Empty __init__.py!')
+            first_line = ''
+
         metadata['description'] = first_line.strip('\n\'"')
         while len(name_map):
             try:
