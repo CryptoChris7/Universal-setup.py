@@ -1,6 +1,7 @@
 from setuptools import setup, find_packages
 import os
 import re
+import ast
 
 HTTP = re.compile('^https?://.+#egg=(.+)$')
 
@@ -39,38 +40,47 @@ def read_metadata() -> dict:
         raise UniversalSetupError('No package found!')
 
     metadata = {'name': entry.name}
-    name_map = {'__version__': 'version',
-                '__author__': 'author',
-                '__email__': 'author_email',
-                '__license__': 'license'}
+    meta_names = {'__version__': 'version',
+                  '__author__': 'author',
+                  '__email__': 'author_email',
+                  '__license__': 'license'}
 
     with open(package_init) as init:
+        code = init.read()
+
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        msg = 'Bad syntax in package init: %s'
+        raise UniversalSetupError(msg % repr(package_init)) from exc
+
+    docstring = ast.get_docstring(tree)
+    if docstring is not None:
+        metadata['description'] = docstring.split('\n')[0].strip()
+    else:
+        print('Missing package docstring!')
+
+    for node in ast.iter_child_nodes(tree):
         try:
-            first_line = next(init)
-        except StopIteration:
-            print('Empty __init__.py!')
-            first_line = ''
+            value = node.value
+            name = node.targets[0].id
+            if name in meta_names:
+                meta_name = meta_names[name]
+                if meta_name in metadata:
+                    msg = 'Repeat metadata assignment on line %d for item %s.'
+                    print(msg % (node.lineno, repr(name)))
+                metadata[meta_name] = value.s
+        except AttributeError:
+            pass
 
-        metadata['description'] = first_line.strip('\n\'"')
-        while len(name_map):
-            try:
-                line = next(init).strip()
-            except StopIteration:
-                print('Missing optional metadata:', ', '.join(name_map))
-                break
+    unused_names = []
+    for name in meta_names:
+        meta_name = meta_names[name]
+        if meta_name not in metadata:
+            unused_names.append(name)
 
-            for name in name_map:
-                if line.startswith(name):
-                    break
-            else:
-                continue
-
-            try:
-                new_name = name_map.pop(name)
-            except KeyError:
-                raise UniversalSetupError('repeated keys in package init!')
-
-            metadata[new_name] = line.split('=')[1].strip('\'\" ')
+    if unused_names:
+        print('The folowing metadata is missing: %s' % ', '.join(unused_names))
 
     metadata['packages'] = find_packages()
     metadata.update(parse_dependency_info())
